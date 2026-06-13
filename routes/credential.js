@@ -39,14 +39,13 @@ router.post('/issue', auth(['window', 'admin']), (req, res) => {
 
     const duplicate = store.checkDuplicateRecipient(
       recipientIdCard,
-      credential.areaId,
       credential.validFrom,
       credential.validTo
     );
     if (duplicate) {
       return res.status(409).json({
         code: 'DUPLICATE_RECIPIENT',
-        message: `领取人 ${recipientName} 在该区域同一时段已有凭证 ${duplicate.credentialNo}（${duplicate.validFrom} ~ ${duplicate.validTo}）`
+        message: `领取人 ${recipientName} 在同一时段已有凭证 ${duplicate.credentialNo}（区域：${duplicate.area}，${duplicate.validFrom} ~ ${duplicate.validTo}）`
       });
     }
 
@@ -176,7 +175,7 @@ router.post('/verify', auth(['window', 'admin']), (req, res) => {
   }
 });
 
-router.post('/void/:id', auth(['window', 'admin']), (req, res) => {
+router.post('/void/:id', auth(['admin']), (req, res) => {
   try {
     const { reason } = req.body;
     const credential = store.getCredentialById(req.params.id);
@@ -203,7 +202,7 @@ router.post('/void/:id', auth(['window', 'admin']), (req, res) => {
   }
 });
 
-router.post('/void-by-no', auth(['window', 'admin']), (req, res) => {
+router.post('/void-by-no', auth(['admin']), (req, res) => {
   try {
     const { credentialNo, reason } = req.body;
     if (!credentialNo) {

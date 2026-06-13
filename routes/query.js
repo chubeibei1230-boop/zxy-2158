@@ -5,6 +5,17 @@ const router = express.Router();
 const store = require('../store');
 const { auth } = require('../middleware');
 
+function maskSensitive(cred, role) {
+  if (role === 'observer') {
+    return {
+      ...cred,
+      recipientIdCard: cred.recipientIdCard ? cred.recipientIdCard.replace(/^(.{3}).*(.{4})$/, '$1***********$2') : null,
+      recipientPhone: cred.recipientPhone ? cred.recipientPhone.replace(/^(.{3}).*(.{4})$/, '$1****$2') : null
+    };
+  }
+  return cred;
+}
+
 router.get('/credentials', auth(['admin', 'window', 'observer']), (req, res) => {
   const {
     batchNo, area, recipientName, recipientIdCard,
@@ -30,7 +41,7 @@ router.get('/credentials', auth(['admin', 'window', 'observer']), (req, res) => 
   const p = parseInt(page) || 1;
   const ps = parseInt(pageSize) || 20;
   const start = (p - 1) * ps;
-  const paginated = credentials.slice(start, start + ps);
+  const paginated = credentials.slice(start, start + ps).map(c => maskSensitive(c, req.user.role));
 
   res.json({
     code: 'OK',
@@ -53,7 +64,7 @@ router.get('/credentials/:id', auth(['admin', 'window', 'observer']), (req, res)
   res.json({
     code: 'OK',
     data: {
-      credential,
+      credential: maskSensitive(credential, req.user.role),
       batch: batch ? { batchNo: batch.batchNo, status: batch.status, total: batch.total } : null
     }
   });
@@ -64,7 +75,7 @@ router.get('/credentials-by-no/:no', auth(['admin', 'window', 'observer']), (req
   if (!credential) {
     return res.status(404).json({ code: 'NOT_FOUND', message: '凭证不存在' });
   }
-  res.json({ code: 'OK', data: credential });
+  res.json({ code: 'OK', data: maskSensitive(credential, req.user.role) });
 });
 
 router.get('/areas', auth(['admin', 'window', 'observer']), (req, res) => {

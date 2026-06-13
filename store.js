@@ -286,11 +286,10 @@ function getNextAvailableCredential(batchId) {
   return creds.length > 0 ? creds[0] : null;
 }
 
-function checkDuplicateRecipient(recipientIdCard, areaId, validFrom, validTo, excludeCredId) {
+function checkDuplicateRecipient(recipientIdCard, validFrom, validTo, excludeCredId) {
   for (const [, cred] of store.credentials) {
     if (excludeCredId && cred.id === excludeCredId) continue;
     if (cred.recipientIdCard !== recipientIdCard) continue;
-    if (cred.areaId !== areaId) continue;
     if (cred.status !== '已发放' && cred.status !== '待盘点') continue;
     if (cred.validFrom <= validTo && cred.validTo >= validFrom) {
       return cred;

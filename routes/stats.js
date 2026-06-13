@@ -5,6 +5,13 @@ const router = express.Router();
 const store = require('../store');
 const { auth } = require('../middleware');
 
+function maskField(value, keepStart, keepEnd) {
+  if (!value) return null;
+  const s = String(value);
+  if (s.length <= keepStart + keepEnd) return s;
+  return s.slice(0, keepStart) + '*'.repeat(s.length - keepStart - keepEnd) + s.slice(-keepEnd);
+}
+
 router.get('/anomalies', auth(['admin', 'window', 'observer']), (req, res) => {
   const { type, batchNo, area, dateFrom, dateTo } = req.query;
   const filter = {};
@@ -104,6 +111,7 @@ router.get('/expired', auth(['admin', 'window', 'observer']), (req, res) => {
     byStatus[cred.status]++;
   }
 
+  const isObserver = req.user.role === 'observer';
   res.json({
     code: 'OK',
     data: {
@@ -122,7 +130,7 @@ router.get('/expired', auth(['admin', 'window', 'observer']), (req, res) => {
         batchNo: c.batchNo,
         area: c.area,
         recipientName: c.recipientName,
-        recipientIdCard: c.recipientIdCard,
+        recipientIdCard: isObserver ? maskField(c.recipientIdCard, 3, 4) : c.recipientIdCard,
         validTo: c.validTo,
         status: c.status,
         expiredDays: Math.floor((now - new Date(c.validTo)) / (1000 * 60 * 60 * 24)),

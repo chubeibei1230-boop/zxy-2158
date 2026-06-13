@@ -101,6 +101,14 @@ router.put('/:id', auth(['admin']), (req, res) => {
     return res.status(400).json({ code: 'INVALID_PERIOD', message: '结束时间必须大于开始时间' });
   }
 
+  if (updates.validFrom && !updates.validTo && new Date(batch.validTo) <= new Date(updates.validFrom)) {
+    return res.status(400).json({ code: 'INVALID_PERIOD', message: '开始时间不能晚于或等于当前结束时间' });
+  }
+
+  if (updates.validTo && !updates.validFrom && new Date(updates.validTo) <= new Date(batch.validFrom)) {
+    return res.status(400).json({ code: 'INVALID_PERIOD', message: '结束时间必须晚于当前开始时间' });
+  }
+
   const updated = store.updateBatch(req.params.id, updates);
   res.json({ code: 'OK', data: updated });
 });
