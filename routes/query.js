@@ -16,7 +16,7 @@ function maskSensitive(cred, role) {
   return cred;
 }
 
-router.get('/credentials', auth(['admin', 'window', 'observer']), (req, res) => {
+router.get('/credentials', auth(['admin', 'window']), (req, res) => {
   const {
     batchNo, area, recipientName, recipientIdCard,
     issuedBy, verifiedBy, status, entryPoint,
@@ -55,7 +55,7 @@ router.get('/credentials', auth(['admin', 'window', 'observer']), (req, res) => 
   });
 });
 
-router.get('/credentials/:id', auth(['admin', 'window', 'observer']), (req, res) => {
+router.get('/credentials/:id', auth(['admin', 'window']), (req, res) => {
   const credential = store.getCredentialById(req.params.id);
   if (!credential) {
     return res.status(404).json({ code: 'NOT_FOUND', message: '凭证不存在' });
@@ -70,7 +70,7 @@ router.get('/credentials/:id', auth(['admin', 'window', 'observer']), (req, res)
   });
 });
 
-router.get('/credentials-by-no/:no', auth(['admin', 'window', 'observer']), (req, res) => {
+router.get('/credentials-by-no/:no', auth(['admin', 'window']), (req, res) => {
   const credential = store.getCredentialByNo(req.params.no);
   if (!credential) {
     return res.status(404).json({ code: 'NOT_FOUND', message: '凭证不存在' });
