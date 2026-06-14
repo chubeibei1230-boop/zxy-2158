@@ -13,7 +13,8 @@ const store = {
   users: new Map(),
   anomalies: new Map(),
   rules: new Map(),
-  auditLogs: []
+  auditLogs: [],
+  extensionApplications: new Map()
 };
 
 function initSeedData() {
@@ -368,8 +369,177 @@ function getStats() {
     batches: store.batches.size,
     credentials: store.credentials.size,
     anomalies: store.anomalies.size,
-    areas: store.areas.size
+    areas: store.areas.size,
+    extensionApplications: store.extensionApplications.size
   };
+}
+
+function createExtensionApplication(data) {
+  const cred = store.credentials.get(data.credentialId);
+  if (!cred) {
+    const err = new Error('凭证不存在');
+    err.code = 'CREDENTIAL_NOT_FOUND';
+    throw err;
+  }
+
+  if (cred.status === '已作废') {
+    const err = new Error('凭证已作废，不可申请延期');
+    err.code = 'CREDENTIAL_VOIDED';
+    throw err;
+  }
+
+  if (cred.status !== '已发放' && cred.status !== '待盘点' && cred.status !== '异常留置') {
+    const err = new Error(`凭证状态为"${cred.status}"，不可申请延期`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  if (data.recipientName !== cred.recipientName || data.recipientIdCard !== cred.recipientIdCard) {
+    const err = new Error('领取人信息与凭证记录不一致');
+    err.code = 'RECIPIENT_MISMATCH';
+    throw err;
+  }
+
+  const maxDays = getRuleValue('max_validity_days');
+  const validDays = (new Date(data.newValidTo) - new Date(cred.validFrom)) / (1000 * 60 * 60 * 24);
+  if (validDays > maxDays) {
+    const err = new Error(`延期后总有效天数 ${Math.ceil(validDays)} 超过最大限制 ${maxDays} 天`);
+    err.code = 'INVALID_VALIDITY';
+    throw err;
+  }
+
+  if (new Date(data.newValidTo) <= new Date(cred.validTo)) {
+    const err = new Error('延期后有效期必须晚于当前有效期');
+    err.code = 'INVALID_EXTENSION';
+    throw err;
+  }
+
+  const pending = getExtensionApplications({ credentialId: data.credentialId, status: 'pending' });
+  if (pending.length > 0) {
+    const err = new Error('该凭证已有待审批的延期申请');
+    err.code = 'PENDING_EXISTS';
+    throw err;
+  }
+
+  const app = {
+    id: generateId(),
+    credentialId: data.credentialId,
+    credentialNo: cred.credentialNo,
+    batchNo: cred.batchNo,
+    area: cred.area,
+    originalValidFrom: cred.validFrom,
+    originalValidTo: cred.validTo,
+    newValidTo: data.newValidTo,
+    reason: data.reason || '',
+    recipientName: cred.recipientName,
+    recipientIdCard: cred.recipientIdCard,
+    recipientPhone: cred.recipientPhone,
+    status: 'pending',
+    applicant: data.applicant,
+    applicantUsername: data.applicantUsername,
+    createdAt: new Date().toISOString(),
+    approvedAt: null,
+    approver: null,
+    rejectedAt: null,
+    rejectReason: null
+  };
+
+  store.extensionApplications.set(app.id, app);
+
+  addAuditLog('EXTENSION_APPLY', app.id, data.applicant,
+    `提交凭证 ${cred.credentialNo} 延期申请，有效期从 ${cred.validTo} 延至 ${data.newValidTo}，原因：${data.reason || '未填写'}`);
+
+  return app;
+}
+
+function getExtensionApplications(filter) {
+  let result = Array.from(store.extensionApplications.values());
+  if (filter) {
+    if (filter.status) result = result.filter(a => a.status === filter.status);
+    if (filter.credentialId) result = result.filter(a => a.credentialId === filter.credentialId);
+    if (filter.credentialNo) result = result.filter(a => a.credentialNo === filter.credentialNo);
+    if (filter.area) result = result.filter(a => a.area === filter.area);
+    if (filter.applicant) result = result.filter(a => a.applicant === filter.applicant);
+    if (filter.approver) result = result.filter(a => a.approver === filter.approver);
+    if (filter.batchNo) result = result.filter(a => a.batchNo === filter.batchNo);
+  }
+  return result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function getExtensionApplicationById(id) {
+  return store.extensionApplications.get(id) || null;
+}
+
+function approveExtensionApplication(id, approver) {
+  const app = store.extensionApplications.get(id);
+  if (!app) {
+    const err = new Error('延期申请不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  if (app.status !== 'pending') {
+    const err = new Error(`申请状态为"${app.status}"，不可审批`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const cred = store.credentials.get(app.credentialId);
+  if (!cred || cred.status === '已作废') {
+    const err = new Error('凭证不存在或已作废');
+    err.code = 'CREDENTIAL_INVALID';
+    throw err;
+  }
+
+  const duplicate = checkDuplicateRecipient(
+    cred.recipientIdCard,
+    cred.validFrom,
+    app.newValidTo,
+    cred.id
+  );
+  if (duplicate) {
+    const err = new Error(`领取人 ${cred.recipientName} 在延期时段内已有凭证 ${duplicate.credentialNo}（区域：${duplicate.area}，${duplicate.validFrom} ~ ${duplicate.validTo}）`);
+    err.code = 'DUPLICATE_RECIPIENT';
+    throw err;
+  }
+
+  app.status = 'approved';
+  app.approvedAt = new Date().toISOString();
+  app.approver = approver;
+
+  updateCredential(app.credentialId, {
+    validTo: app.newValidTo
+  });
+
+  addAuditLog('EXTENSION_APPROVE', app.id, approver,
+    `批准凭证 ${app.credentialNo} 延期申请，有效期从 ${app.originalValidTo} 延至 ${app.newValidTo}`);
+
+  return app;
+}
+
+function rejectExtensionApplication(id, approver, rejectReason) {
+  const app = store.extensionApplications.get(id);
+  if (!app) {
+    const err = new Error('延期申请不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  if (app.status !== 'pending') {
+    const err = new Error(`申请状态为"${app.status}"，不可审批`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  app.status = 'rejected';
+  app.rejectedAt = new Date().toISOString();
+  app.approver = approver;
+  app.rejectReason = rejectReason || '';
+
+  addAuditLog('EXTENSION_REJECT', app.id, approver,
+    `驳回凭证 ${app.credentialNo} 延期申请，原因：${rejectReason || '未填写'}`);
+
+  return app;
 }
 
 function getUsers() {
@@ -405,5 +575,10 @@ module.exports = {
   getRules,
   getRuleValue,
   updateRule,
-  getStats
+  getStats,
+  createExtensionApplication,
+  getExtensionApplications,
+  getExtensionApplicationById,
+  approveExtensionApplication,
+  rejectExtensionApplication
 };
