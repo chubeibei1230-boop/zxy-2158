@@ -309,8 +309,10 @@ function createAnomaly(data) {
     entryPoint: data.entryPoint,
     type: data.type,
     description: data.description,
-    detectedAt: new Date().toISOString(),
+    detectedAt: data.detectedAt || new Date().toISOString(),
     status: 'pending',
+    acceptedBy: null,
+    acceptedAt: null,
     result: null,
     handleRemark: null,
     handledBy: null,
@@ -340,7 +342,7 @@ function getAnomalyById(id) {
   return store.anomalies.get(id) || null;
 }
 
-function handleAnomalyRelease(anomalyId, handler, remark) {
+function acceptAnomaly(anomalyId, accepter) {
   const anomaly = store.anomalies.get(anomalyId);
   if (!anomaly) {
     const err = new Error('异常记录不存在');
@@ -349,7 +351,77 @@ function handleAnomalyRelease(anomalyId, handler, remark) {
   }
 
   if (anomaly.status !== 'pending') {
+    const err = new Error(`异常记录状态为"${anomaly.status}"，不可受理（仅待受理状态可受理）`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+  anomaly.status = 'accepted';
+  anomaly.acceptedBy = accepter;
+  anomaly.acceptedAt = now;
+
+  const cred = store.credentials.get(anomaly.credentialId);
+  if (cred && cred.anomalies && cred.anomalies.length > 0) {
+    cred.anomalies = cred.anomalies.map(a => {
+      if (a.type === anomaly.type && a.detectedAt === anomaly.detectedAt) {
+        return { ...a, status: 'accepted', acceptedBy: accepter, acceptedAt: now };
+      }
+      return a;
+    });
+  }
+
+  addAuditLog('ANOMALY_ACCEPT', anomalyId, accepter,
+    `受理异常记录，凭证：${anomaly.credentialNo}，异常类型：${anomaly.type}`);
+
+  return anomaly;
+}
+
+function _syncCredentialAnomalies(cred, anomalyId, handler, result, remark, now) {
+  const targetAnomaly = store.anomalies.get(anomalyId);
+  if (!targetAnomaly) return;
+
+  const credAnomalies = Array.from(store.anomalies.values())
+    .filter(a => a.credentialId === cred.id);
+
+  for (const a of credAnomalies) {
+    const matchType = a.type;
+    const matchDetectedAt = a.detectedAt;
+
+    if (cred.anomalies && cred.anomalies.length > 0) {
+      cred.anomalies = cred.anomalies.map(ca => {
+        if (ca.type === matchType && ca.detectedAt === matchDetectedAt) {
+          return {
+            ...ca,
+            status: 'handled',
+            result: result,
+            handleRemark: remark || '',
+            handledBy: handler,
+            handledAt: now
+          };
+        }
+        return ca;
+      });
+    }
+  }
+}
+
+function handleAnomalyRelease(anomalyId, handler, remark) {
+  const anomaly = store.anomalies.get(anomalyId);
+  if (!anomaly) {
+    const err = new Error('异常记录不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  if (anomaly.status === 'handled') {
     const err = new Error(`异常记录状态为"${anomaly.status}"，不可重复处置`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  if (anomaly.status === 'pending') {
+    const err = new Error('异常记录尚未受理，请先受理后再执行处置');
     err.code = 'INVALID_STATUS';
     throw err;
   }
@@ -378,14 +450,21 @@ function handleAnomalyRelease(anomalyId, handler, remark) {
   cred.status = '已核销';
 
   const otherAnomalies = Array.from(store.anomalies.values())
-    .filter(a => a.credentialId === cred.id && a.id !== anomalyId && a.status === 'pending');
+    .filter(a => a.credentialId === cred.id && a.id !== anomalyId && a.status !== 'handled');
   for (const a of otherAnomalies) {
+    if (!a.acceptedAt) {
+      a.status = 'accepted';
+      a.acceptedBy = handler;
+      a.acceptedAt = now;
+    }
     a.status = 'handled';
     a.result = 'released';
     a.handleRemark = remark || '';
     a.handledBy = handler;
     a.handledAt = now;
   }
+
+  _syncCredentialAnomalies(cred, anomalyId, handler, 'released', remark, now);
 
   addAuditLog('ANOMALY_RELEASE', anomalyId, handler,
     `人工放行凭证 ${cred.credentialNo} 的异常记录，异常类型：${anomaly.type}，处置意见：${remark || '无'}`);
@@ -401,8 +480,14 @@ function handleAnomalyVoid(anomalyId, handler, remark) {
     throw err;
   }
 
-  if (anomaly.status !== 'pending') {
+  if (anomaly.status === 'handled') {
     const err = new Error(`异常记录状态为"${anomaly.status}"，不可重复处置`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  if (anomaly.status === 'pending') {
+    const err = new Error('异常记录尚未受理，请先受理后再执行处置');
     err.code = 'INVALID_STATUS';
     throw err;
   }
@@ -434,14 +519,21 @@ function handleAnomalyVoid(anomalyId, handler, remark) {
   cred.voidReason = remark || '异常留置确认作废';
 
   const otherAnomalies = Array.from(store.anomalies.values())
-    .filter(a => a.credentialId === cred.id && a.id !== anomalyId && a.status === 'pending');
+    .filter(a => a.credentialId === cred.id && a.id !== anomalyId && a.status !== 'handled');
   for (const a of otherAnomalies) {
+    if (!a.acceptedAt) {
+      a.status = 'accepted';
+      a.acceptedBy = handler;
+      a.acceptedAt = now;
+    }
     a.status = 'handled';
     a.result = 'voided';
     a.handleRemark = remark || '';
     a.handledBy = handler;
     a.handledAt = now;
   }
+
+  _syncCredentialAnomalies(cred, anomalyId, handler, 'voided', remark, now);
 
   addAuditLog('ANOMALY_VOID', anomalyId, handler,
     `确认作废凭证 ${cred.credentialNo}，异常类型：${anomaly.type}，处置意见：${remark || '无'}`);
@@ -725,6 +817,7 @@ module.exports = {
   createAnomaly,
   getAnomalies,
   getAnomalyById,
+  acceptAnomaly,
   handleAnomalyRelease,
   handleAnomalyVoid,
   addAuditLog,

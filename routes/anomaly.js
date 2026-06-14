@@ -23,6 +23,16 @@ function maskSensitive(anomaly, role) {
   return anomaly;
 }
 
+function maskCredentialAnomalies(anomalies, role) {
+  if (!anomalies) return [];
+  return anomalies.map(a => {
+    if (role === 'observer') {
+      return a;
+    }
+    return a;
+  });
+}
+
 router.get('/', auth(['admin', 'window', 'observer']), (req, res) => {
   try {
     const {
@@ -46,6 +56,7 @@ router.get('/', auth(['admin', 'window', 'observer']), (req, res) => {
     const stats = {
       total: anomalies.length,
       pending: anomalies.filter(a => a.status === 'pending').length,
+      accepted: anomalies.filter(a => a.status === 'accepted').length,
       handled: anomalies.filter(a => a.status === 'handled').length,
       released: anomalies.filter(a => a.result === 'released').length,
       voided: anomalies.filter(a => a.result === 'voided').length,
@@ -129,7 +140,8 @@ router.get('/:id', auth(['admin', 'window', 'observer']), (req, res) => {
       entryPoint: credential.entryPoint,
       voidedAt: credential.voidedAt,
       voidedBy: credential.voidedBy,
-      voidReason: credential.voidReason
+      voidReason: credential.voidReason,
+      anomalies: maskCredentialAnomalies(credential.anomalies, req.user.role)
     }, req.user.role);
 
     const anomalyDetail = {
@@ -152,12 +164,35 @@ router.get('/:id', auth(['admin', 'window', 'observer']), (req, res) => {
         description: a.description,
         detectedAt: a.detectedAt,
         status: a.status,
-        result: a.result
+        acceptedBy: a.acceptedBy,
+        acceptedAt: a.acceptedAt,
+        result: a.result,
+        handledBy: a.handledBy,
+        handledAt: a.handledAt,
+        handleRemark: a.handleRemark
       }))
     };
 
     res.json({ code: 'OK', data: anomalyDetail });
   } catch (err) {
+    res.status(500).json({ code: 'INTERNAL_ERROR', message: err.message });
+  }
+});
+
+router.post('/:id/accept', auth(['admin']), (req, res) => {
+  try {
+    const result = store.acceptAnomaly(
+      req.params.id,
+      req.user.name
+    );
+    res.json({ code: 'OK', data: result });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') {
+      return res.status(404).json({ code: err.code, message: err.message });
+    }
+    if (err.code === 'INVALID_STATUS') {
+      return res.status(400).json({ code: err.code, message: err.message });
+    }
     res.status(500).json({ code: 'INTERNAL_ERROR', message: err.message });
   }
 });

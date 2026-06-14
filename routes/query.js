@@ -121,15 +121,18 @@ router.get('/areas', auth(['admin', 'window', 'observer']), (req, res) => {
   const areas = store.getAreas();
   const enriched = areas.map(a => {
     const creds = store.getCredentials({ areaId: a.id });
+    const stats = {
+      total: creds.length,
+      '待发放': creds.filter(c => c.status === '待发放').length,
+      '已发放': creds.filter(c => c.status === '已发放').length,
+      '已核销': creds.filter(c => c.status === '已核销').length,
+      '已作废': creds.filter(c => c.status === '已作废').length,
+      '待盘点': creds.filter(c => c.status === '待盘点').length,
+      '异常留置': creds.filter(c => c.status === '异常留置').length
+    };
     return {
       ...a,
-      stats: {
-        total: creds.length,
-        '待发放': creds.filter(c => c.status === '待发放').length,
-        '已发放': creds.filter(c => c.status === '已发放').length,
-        '已核销': creds.filter(c => c.status === '已核销').length,
-        '已作废': creds.filter(c => c.status === '已作废').length
-      }
+      stats
     };
   });
   res.json({ code: 'OK', data: enriched });

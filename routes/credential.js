@@ -137,14 +137,22 @@ router.post('/verify', auth(['window', 'admin']), (req, res) => {
     }
 
     const newStatus = detectedAnomalies.length > 0 ? '异常留置' : '已核销';
+    const nowIso = now.toISOString();
     const anomalies = detectedAnomalies.map(a => ({
       ...a,
-      detectedAt: now.toISOString()
+      detectedAt: nowIso,
+      status: 'pending',
+      acceptedBy: null,
+      acceptedAt: null,
+      result: null,
+      handleRemark: null,
+      handledBy: null,
+      handledAt: null
     }));
 
     const updated = store.updateCredential(credential.id, {
       status: newStatus,
-      verifiedAt: now.toISOString(),
+      verifiedAt: nowIso,
       verifiedBy: req.user.name,
       entryPoint,
       anomalies: [...credential.anomalies, ...anomalies]
@@ -158,7 +166,8 @@ router.post('/verify', auth(['window', 'admin']), (req, res) => {
         area: credential.area,
         entryPoint,
         type: a.type,
-        description: a.description
+        description: a.description,
+        detectedAt: nowIso
       });
     }
 
