@@ -190,7 +190,7 @@ router.post('/:id/accept', auth(['admin']), (req, res) => {
     if (err.code === 'NOT_FOUND') {
       return res.status(404).json({ code: err.code, message: err.message });
     }
-    if (err.code === 'INVALID_STATUS') {
+    if (err.code === 'INVALID_STATUS' || err.code === 'MISSING_REMARK') {
       return res.status(400).json({ code: err.code, message: err.message });
     }
     res.status(500).json({ code: 'INTERNAL_ERROR', message: err.message });
@@ -210,7 +210,7 @@ router.post('/:id/release', auth(['admin']), (req, res) => {
     if (err.code === 'NOT_FOUND') {
       return res.status(404).json({ code: err.code, message: err.message });
     }
-    if (err.code === 'INVALID_STATUS') {
+    if (err.code === 'INVALID_STATUS' || err.code === 'MISSING_REMARK') {
       return res.status(400).json({ code: err.code, message: err.message });
     }
     res.status(500).json({ code: 'INTERNAL_ERROR', message: err.message });

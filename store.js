@@ -406,7 +406,18 @@ function _syncCredentialAnomalies(cred, anomalyId, handler, result, remark, now)
   }
 }
 
+function normalizeHandleRemark(remark) {
+  const value = String(remark || '').trim();
+  if (!value) {
+    const err = new Error('处置意见必填');
+    err.code = 'MISSING_REMARK';
+    throw err;
+  }
+  return value;
+}
+
 function handleAnomalyRelease(anomalyId, handler, remark) {
+  const handleRemark = normalizeHandleRemark(remark);
   const anomaly = store.anomalies.get(anomalyId);
   if (!anomaly) {
     const err = new Error('异常记录不存在');
@@ -443,7 +454,7 @@ function handleAnomalyRelease(anomalyId, handler, remark) {
 
   anomaly.status = 'handled';
   anomaly.result = 'released';
-  anomaly.handleRemark = remark || '';
+  anomaly.handleRemark = handleRemark;
   anomaly.handledBy = handler;
   anomaly.handledAt = now;
 
@@ -459,20 +470,21 @@ function handleAnomalyRelease(anomalyId, handler, remark) {
     }
     a.status = 'handled';
     a.result = 'released';
-    a.handleRemark = remark || '';
+    a.handleRemark = handleRemark;
     a.handledBy = handler;
     a.handledAt = now;
   }
 
-  _syncCredentialAnomalies(cred, anomalyId, handler, 'released', remark, now);
+  _syncCredentialAnomalies(cred, anomalyId, handler, 'released', handleRemark, now);
 
   addAuditLog('ANOMALY_RELEASE', anomalyId, handler,
-    `人工放行凭证 ${cred.credentialNo} 的异常记录，异常类型：${anomaly.type}，处置意见：${remark || '无'}`);
+    `人工放行凭证 ${cred.credentialNo} 的异常记录，异常类型：${anomaly.type}，处置意见：${handleRemark}`);
 
   return { anomaly, credential: cred };
 }
 
 function handleAnomalyVoid(anomalyId, handler, remark) {
+  const handleRemark = normalizeHandleRemark(remark);
   const anomaly = store.anomalies.get(anomalyId);
   if (!anomaly) {
     const err = new Error('异常记录不存在');
@@ -509,14 +521,14 @@ function handleAnomalyVoid(anomalyId, handler, remark) {
 
   anomaly.status = 'handled';
   anomaly.result = 'voided';
-  anomaly.handleRemark = remark || '';
+  anomaly.handleRemark = handleRemark;
   anomaly.handledBy = handler;
   anomaly.handledAt = now;
 
   cred.status = '已作废';
   cred.voidedAt = now;
   cred.voidedBy = handler;
-  cred.voidReason = remark || '异常留置确认作废';
+  cred.voidReason = handleRemark;
 
   const otherAnomalies = Array.from(store.anomalies.values())
     .filter(a => a.credentialId === cred.id && a.id !== anomalyId && a.status !== 'handled');
@@ -528,15 +540,15 @@ function handleAnomalyVoid(anomalyId, handler, remark) {
     }
     a.status = 'handled';
     a.result = 'voided';
-    a.handleRemark = remark || '';
+    a.handleRemark = handleRemark;
     a.handledBy = handler;
     a.handledAt = now;
   }
 
-  _syncCredentialAnomalies(cred, anomalyId, handler, 'voided', remark, now);
+  _syncCredentialAnomalies(cred, anomalyId, handler, 'voided', handleRemark, now);
 
   addAuditLog('ANOMALY_VOID', anomalyId, handler,
-    `确认作废凭证 ${cred.credentialNo}，异常类型：${anomaly.type}，处置意见：${remark || '无'}`);
+    `确认作废凭证 ${cred.credentialNo}，异常类型：${anomaly.type}，处置意见：${handleRemark}`);
 
   return { anomaly, credential: cred };
 }
