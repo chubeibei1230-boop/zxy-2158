@@ -9,6 +9,7 @@ const queryRoutes = require('./routes/query');
 const statsRoutes = require('./routes/stats');
 const extensionRoutes = require('./routes/extension');
 const anomalyRoutes = require('./routes/anomaly');
+const returnRoutes = require('./routes/return');
 
 const app = express();
 const PORT = 8113;
@@ -23,6 +24,7 @@ app.use('/api/queries', queryRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/extensions', extensionRoutes);
 app.use('/api/anomalies', anomalyRoutes);
+app.use('/api/returns', returnRoutes);
 
 app.post('/api/areas', auth(['admin']), (req, res) => {
   const { name, entryPoints } = req.body;

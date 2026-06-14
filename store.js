@@ -14,7 +14,8 @@ const store = {
   anomalies: new Map(),
   rules: new Map(),
   auditLogs: [],
-  extensionApplications: new Map()
+  extensionApplications: new Map(),
+  returns: new Map()
 };
 
 function initSeedData() {
@@ -266,6 +267,7 @@ function getCredentials(filter) {
     if (filter.recipientIdCard) result = result.filter(c => c.recipientIdCard === filter.recipientIdCard);
     if (filter.issuedBy) result = result.filter(c => c.issuedBy === filter.issuedBy);
     if (filter.verifiedBy) result = result.filter(c => c.verifiedBy === filter.verifiedBy);
+    if (filter.returnedBy) result = result.filter(c => c.returnedBy === filter.returnedBy);
     if (filter.entryPoint) result = result.filter(c => c.entryPoint === filter.entryPoint);
     if (filter.dateFrom) result = result.filter(c => c.issuedAt && c.issuedAt >= filter.dateFrom);
     if (filter.dateTo) result = result.filter(c => c.issuedAt && c.issuedAt <= filter.dateTo);
@@ -620,13 +622,146 @@ function updateRule(key, value) {
   return rule;
 }
 
+function returnCredential(data) {
+  const cred = store.credentials.get(data.credentialId);
+  if (!cred) {
+    const err = new Error('凭证不存在');
+    err.code = 'CREDENTIAL_NOT_FOUND';
+    throw err;
+  }
+
+  if (cred.status !== '已发放') {
+    const err = new Error(`凭证状态为"${cred.status}"，不可归还（仅已发放状态可归还）`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+
+  const returnRecord = {
+    id: generateId(),
+    credentialId: cred.id,
+    credentialNo: cred.credentialNo,
+    batchId: cred.batchId,
+    batchNo: cred.batchNo,
+    areaId: cred.areaId,
+    area: cred.area,
+    returnPersonName: data.returnPersonName || cred.recipientName,
+    returnPersonIdCard: data.returnPersonIdCard || cred.recipientIdCard,
+    returnPersonPhone: data.returnPersonPhone || cred.recipientPhone,
+    returnEntryPoint: data.returnEntryPoint || '',
+    returnReason: data.returnReason || '',
+    returnRemark: data.returnRemark || '',
+    returnedAt: now,
+    returnedBy: data.returnedBy,
+    status: 'active',
+    revokedAt: null,
+    revokedBy: null,
+    revokeReason: null
+  };
+
+  store.returns.set(returnRecord.id, returnRecord);
+
+  cred.status = '已归还';
+  cred.returnedAt = now;
+  cred.returnedBy = data.returnedBy;
+  cred.returnEntryPoint = data.returnEntryPoint || '';
+  cred.returnReason = data.returnReason || '';
+
+  addAuditLog('CREDENTIAL_RETURN', cred.id, data.returnedBy,
+    `归还凭证 ${cred.credentialNo}，归还人：${returnRecord.returnPersonName}，原因：${data.returnReason || '未填写'}`);
+
+  return returnRecord;
+}
+
+function getReturnRecords(filter) {
+  let result = Array.from(store.returns.values());
+  if (filter) {
+    if (filter.batchNo) result = result.filter(r => r.batchNo === filter.batchNo);
+    if (filter.area) result = result.filter(r => r.area === filter.area);
+    if (filter.areaId) result = result.filter(r => r.areaId === filter.areaId);
+    if (filter.credentialNo) result = result.filter(r => r.credentialNo === filter.credentialNo);
+    if (filter.returnPersonName) result = result.filter(r => r.returnPersonName && r.returnPersonName.includes(filter.returnPersonName));
+    if (filter.returnPersonIdCard) result = result.filter(r => r.returnPersonIdCard === filter.returnPersonIdCard);
+    if (filter.status) result = result.filter(r => r.status === filter.status);
+    if (filter.returnedBy) result = result.filter(r => r.returnedBy === filter.returnedBy);
+    if (filter.returnEntryPoint) result = result.filter(r => r.returnEntryPoint === filter.returnEntryPoint);
+    if (filter.dateFrom) result = result.filter(r => r.returnedAt >= filter.dateFrom);
+    if (filter.dateTo) result = result.filter(r => r.returnedAt <= filter.dateTo);
+  }
+  return result.sort((a, b) => new Date(b.returnedAt) - new Date(a.returnedAt));
+}
+
+function getReturnRecordById(id) {
+  return store.returns.get(id) || null;
+}
+
+function getReturnRecordsByCredentialId(credentialId) {
+  return Array.from(store.returns.values())
+    .filter(r => r.credentialId === credentialId)
+    .sort((a, b) => new Date(b.returnedAt) - new Date(a.returnedAt));
+}
+
+function revokeReturn(returnId, revokedBy, revokeReason) {
+  const returnRecord = store.returns.get(returnId);
+  if (!returnRecord) {
+    const err = new Error('归还记录不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  if (returnRecord.status !== 'active') {
+    const err = new Error(`归还记录状态为"${returnRecord.status}"，不可撤销（仅active状态可撤销）`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  if (!String(revokeReason || '').trim()) {
+    const err = new Error('撤销原因必填');
+    err.code = 'MISSING_REASON';
+    throw err;
+  }
+
+  const cred = store.credentials.get(returnRecord.credentialId);
+  if (!cred) {
+    const err = new Error('关联凭证不存在');
+    err.code = 'CREDENTIAL_NOT_FOUND';
+    throw err;
+  }
+
+  if (cred.status !== '已归还') {
+    const err = new Error(`凭证当前状态为"${cred.status}"，不可撤销归还`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+
+  returnRecord.status = 'revoked';
+  returnRecord.revokedAt = now;
+  returnRecord.revokedBy = revokedBy;
+  returnRecord.revokeReason = String(revokeReason).trim();
+
+  cred.status = '已发放';
+  cred.returnedAt = null;
+  cred.returnedBy = null;
+  cred.returnEntryPoint = null;
+  cred.returnReason = null;
+
+  addAuditLog('CREDENTIAL_RETURN_REVOKE', returnRecord.credentialId, revokedBy,
+    `撤销凭证 ${cred.credentialNo} 的归还记录，原因：${String(revokeReason).trim()}`);
+
+  return returnRecord;
+}
+
 function getStats() {
   return {
     batches: store.batches.size,
     credentials: store.credentials.size,
     anomalies: store.anomalies.size,
     areas: store.areas.size,
-    extensionApplications: store.extensionApplications.size
+    extensionApplications: store.extensionApplications.size,
+    returns: store.returns.size
   };
 }
 
@@ -842,5 +977,10 @@ module.exports = {
   getExtensionApplications,
   getExtensionApplicationById,
   approveExtensionApplication,
-  rejectExtensionApplication
+  rejectExtensionApplication,
+  returnCredential,
+  getReturnRecords,
+  getReturnRecordById,
+  getReturnRecordsByCredentialId,
+  revokeReturn
 };

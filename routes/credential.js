@@ -192,8 +192,8 @@ router.post('/void/:id', auth(['admin']), (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: '凭证不存在' });
     }
 
-    if (credential.status !== '待发放' && credential.status !== '已发放') {
-      return res.status(400).json({ code: 'INVALID_STATUS', message: `凭证状态为"${credential.status}"，不可作废（仅待发放/已发放可作废）` });
+    if (credential.status !== '待发放' && credential.status !== '已发放' && credential.status !== '已归还') {
+      return res.status(400).json({ code: 'INVALID_STATUS', message: `凭证状态为"${credential.status}"，不可作废（仅待发放/已发放/已归还可作废）` });
     }
 
     const updated = store.updateCredential(credential.id, {
@@ -223,7 +223,7 @@ router.post('/void-by-no', auth(['admin']), (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: `凭证号 ${credentialNo} 不存在` });
     }
 
-    if (credential.status !== '待发放' && credential.status !== '已发放') {
+    if (credential.status !== '待发放' && credential.status !== '已发放' && credential.status !== '已归还') {
       return res.status(400).json({ code: 'INVALID_STATUS', message: `凭证状态为"${credential.status}"，不可作废` });
     }
 

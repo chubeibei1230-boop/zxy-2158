@@ -55,7 +55,8 @@ router.get('/', auth(['admin', 'window', 'observer']), (req, res) => {
         '已核销': creds.filter(c => c.status === '已核销').length,
         '已作废': creds.filter(c => c.status === '已作废').length,
         '待盘点': creds.filter(c => c.status === '待盘点').length,
-        '异常留置': creds.filter(c => c.status === '异常留置').length
+        '异常留置': creds.filter(c => c.status === '异常留置').length,
+        '已归还': creds.filter(c => c.status === '已归还').length
       }
     };
   });
@@ -75,7 +76,8 @@ router.get('/:id', auth(['admin', 'window', 'observer']), (req, res) => {
     '已核销': credentials.filter(c => c.status === '已核销').length,
     '已作废': credentials.filter(c => c.status === '已作废').length,
     '待盘点': credentials.filter(c => c.status === '待盘点').length,
-    '异常留置': credentials.filter(c => c.status === '异常留置').length
+    '异常留置': credentials.filter(c => c.status === '异常留置').length,
+    '已归还': credentials.filter(c => c.status === '已归还').length
   };
   res.json({ code: 'OK', data: { batch, summary } });
 });

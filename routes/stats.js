@@ -73,6 +73,7 @@ router.get('/area-heat', auth(['admin', 'window', 'observer']), (req, res) => {
         '已作废': 0,
         '待盘点': 0,
         '异常留置': 0,
+        '已归还': 0,
         verificationRate: 0,
         entryPointDistribution: {}
       };
