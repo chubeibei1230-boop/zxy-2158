@@ -13,27 +13,41 @@ function maskField(value, keepStart, keepEnd) {
 }
 
 router.get('/anomalies', auth(['admin', 'window', 'observer']), (req, res) => {
-  const { type, batchNo, area, dateFrom, dateTo } = req.query;
+  const { type, batchNo, area, status, result, dateFrom, dateTo } = req.query;
   const filter = {};
   if (type) filter.type = type;
   if (batchNo) filter.batchNo = batchNo;
   if (area) filter.area = area;
+  if (status) filter.status = status;
+  if (result) filter.result = result;
   if (dateFrom) filter.dateFrom = dateFrom;
   if (dateTo) filter.dateTo = dateTo;
 
   const anomalies = store.getAnomalies(filter);
 
   const byType = {};
+  const byStatus = {};
+  const byResult = {};
   for (const a of anomalies) {
     if (!byType[a.type]) byType[a.type] = 0;
     byType[a.type]++;
+    if (!byStatus[a.status]) byStatus[a.status] = 0;
+    byStatus[a.status]++;
+    if (a.result) {
+      if (!byResult[a.result]) byResult[a.result] = 0;
+      byResult[a.result]++;
+    }
   }
 
   res.json({
     code: 'OK',
     data: {
       total: anomalies.length,
+      pending: anomalies.filter(a => a.status === 'pending').length,
+      handled: anomalies.filter(a => a.status === 'handled').length,
       byType,
+      byStatus,
+      byResult,
       items: anomalies
     }
   });

@@ -309,7 +309,12 @@ function createAnomaly(data) {
     entryPoint: data.entryPoint,
     type: data.type,
     description: data.description,
-    detectedAt: new Date().toISOString()
+    detectedAt: new Date().toISOString(),
+    status: 'pending',
+    result: null,
+    handleRemark: null,
+    handledBy: null,
+    handledAt: null
   };
   store.anomalies.set(anomaly.id, anomaly);
   return anomaly;
@@ -321,10 +326,127 @@ function getAnomalies(filter) {
     if (filter.type) result = result.filter(a => a.type === filter.type);
     if (filter.batchNo) result = result.filter(a => a.batchNo === filter.batchNo);
     if (filter.area) result = result.filter(a => a.area === filter.area);
+    if (filter.status) result = result.filter(a => a.status === filter.status);
+    if (filter.result) result = result.filter(a => a.result === filter.result);
+    if (filter.credentialId) result = result.filter(a => a.credentialId === filter.credentialId);
+    if (filter.credentialNo) result = result.filter(a => a.credentialNo === filter.credentialNo);
     if (filter.dateFrom) result = result.filter(a => a.detectedAt >= filter.dateFrom);
     if (filter.dateTo) result = result.filter(a => a.detectedAt <= filter.dateTo);
   }
-  return result;
+  return result.sort((a, b) => new Date(b.detectedAt) - new Date(a.detectedAt));
+}
+
+function getAnomalyById(id) {
+  return store.anomalies.get(id) || null;
+}
+
+function handleAnomalyRelease(anomalyId, handler, remark) {
+  const anomaly = store.anomalies.get(anomalyId);
+  if (!anomaly) {
+    const err = new Error('异常记录不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  if (anomaly.status !== 'pending') {
+    const err = new Error(`异常记录状态为"${anomaly.status}"，不可重复处置`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const cred = store.credentials.get(anomaly.credentialId);
+  if (!cred) {
+    const err = new Error('关联凭证不存在');
+    err.code = 'CREDENTIAL_NOT_FOUND';
+    throw err;
+  }
+
+  if (cred.status !== '异常留置') {
+    const err = new Error(`凭证状态为"${cred.status}"，不可执行放行操作`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+
+  anomaly.status = 'handled';
+  anomaly.result = 'released';
+  anomaly.handleRemark = remark || '';
+  anomaly.handledBy = handler;
+  anomaly.handledAt = now;
+
+  cred.status = '已核销';
+
+  const otherAnomalies = Array.from(store.anomalies.values())
+    .filter(a => a.credentialId === cred.id && a.id !== anomalyId && a.status === 'pending');
+  for (const a of otherAnomalies) {
+    a.status = 'handled';
+    a.result = 'released';
+    a.handleRemark = remark || '';
+    a.handledBy = handler;
+    a.handledAt = now;
+  }
+
+  addAuditLog('ANOMALY_RELEASE', anomalyId, handler,
+    `人工放行凭证 ${cred.credentialNo} 的异常记录，异常类型：${anomaly.type}，处置意见：${remark || '无'}`);
+
+  return { anomaly, credential: cred };
+}
+
+function handleAnomalyVoid(anomalyId, handler, remark) {
+  const anomaly = store.anomalies.get(anomalyId);
+  if (!anomaly) {
+    const err = new Error('异常记录不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  if (anomaly.status !== 'pending') {
+    const err = new Error(`异常记录状态为"${anomaly.status}"，不可重复处置`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const cred = store.credentials.get(anomaly.credentialId);
+  if (!cred) {
+    const err = new Error('关联凭证不存在');
+    err.code = 'CREDENTIAL_NOT_FOUND';
+    throw err;
+  }
+
+  if (cred.status !== '异常留置') {
+    const err = new Error(`凭证状态为"${cred.status}"，不可执行作废操作`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+
+  anomaly.status = 'handled';
+  anomaly.result = 'voided';
+  anomaly.handleRemark = remark || '';
+  anomaly.handledBy = handler;
+  anomaly.handledAt = now;
+
+  cred.status = '已作废';
+  cred.voidedAt = now;
+  cred.voidedBy = handler;
+  cred.voidReason = remark || '异常留置确认作废';
+
+  const otherAnomalies = Array.from(store.anomalies.values())
+    .filter(a => a.credentialId === cred.id && a.id !== anomalyId && a.status === 'pending');
+  for (const a of otherAnomalies) {
+    a.status = 'handled';
+    a.result = 'voided';
+    a.handleRemark = remark || '';
+    a.handledBy = handler;
+    a.handledAt = now;
+  }
+
+  addAuditLog('ANOMALY_VOID', anomalyId, handler,
+    `确认作废凭证 ${cred.credentialNo}，异常类型：${anomaly.type}，处置意见：${remark || '无'}`);
+
+  return { anomaly, credential: cred };
 }
 
 function addAuditLog(action, targetId, operator, detail) {
@@ -602,6 +724,9 @@ module.exports = {
   checkDuplicateRecipient,
   createAnomaly,
   getAnomalies,
+  getAnomalyById,
+  handleAnomalyRelease,
+  handleAnomalyVoid,
   addAuditLog,
   getAuditLogs,
   getRules,
