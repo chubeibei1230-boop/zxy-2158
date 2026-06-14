@@ -683,6 +683,14 @@ function getReturnRecords(filter) {
     if (filter.credentialNo) result = result.filter(r => r.credentialNo === filter.credentialNo);
     if (filter.returnPersonName) result = result.filter(r => r.returnPersonName && r.returnPersonName.includes(filter.returnPersonName));
     if (filter.returnPersonIdCard) result = result.filter(r => r.returnPersonIdCard === filter.returnPersonIdCard);
+    if (filter.recipientName) result = result.filter(r => {
+      const cred = store.credentials.get(r.credentialId);
+      return cred && cred.recipientName && cred.recipientName.includes(filter.recipientName);
+    });
+    if (filter.recipientIdCard) result = result.filter(r => {
+      const cred = store.credentials.get(r.credentialId);
+      return cred && cred.recipientIdCard === filter.recipientIdCard;
+    });
     if (filter.status) result = result.filter(r => r.status === filter.status);
     if (filter.returnedBy) result = result.filter(r => r.returnedBy === filter.returnedBy);
     if (filter.returnEntryPoint) result = result.filter(r => r.returnEntryPoint === filter.returnEntryPoint);
@@ -732,6 +740,18 @@ function revokeReturn(returnId, revokedBy, revokeReason) {
   if (cred.status !== '已归还') {
     const err = new Error(`凭证当前状态为"${cred.status}"，不可撤销归还`);
     err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  const duplicate = checkDuplicateRecipient(
+    cred.recipientIdCard,
+    cred.validFrom,
+    cred.validTo,
+    cred.id
+  );
+  if (duplicate) {
+    const err = new Error(`撤销归还后，领取人 ${cred.recipientName} 将在同一时段持有另一有效凭证 ${duplicate.credentialNo}（区域：${duplicate.area}，${duplicate.validFrom} ~ ${duplicate.validTo}），不可撤销`);
+    err.code = 'DUPLICATE_RECIPIENT';
     throw err;
   }
 

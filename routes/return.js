@@ -17,7 +17,8 @@ function maskSensitive(record, role) {
     return {
       ...record,
       returnPersonIdCard: record.returnPersonIdCard ? maskField(record.returnPersonIdCard, 3, 4) : null,
-      returnPersonPhone: record.returnPersonPhone ? maskField(record.returnPersonPhone, 3, 4) : null
+      returnPersonPhone: record.returnPersonPhone ? maskField(record.returnPersonPhone, 3, 4) : null,
+      recipientIdCard: record.recipientIdCard ? maskField(record.recipientIdCard, 3, 4) : null
     };
   }
   return record;
@@ -29,6 +30,14 @@ router.post('/', auth(['window', 'admin']), (req, res) => {
 
     if (!credentialId) {
       return res.status(400).json({ code: 'MISSING_FIELDS', message: '凭证ID(credentialId)必填' });
+    }
+
+    if (!returnEntryPoint || !String(returnEntryPoint).trim()) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: '归还入口/窗口(returnEntryPoint)必填' });
+    }
+
+    if (!returnReason || !String(returnReason).trim()) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: '归还原因(returnReason)必填' });
     }
 
     const credential = store.getCredentialById(credentialId);
@@ -71,6 +80,14 @@ router.post('/by-no', auth(['window', 'admin']), (req, res) => {
       return res.status(400).json({ code: 'MISSING_FIELDS', message: '凭证号(credentialNo)必填' });
     }
 
+    if (!returnEntryPoint || !String(returnEntryPoint).trim()) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: '归还入口/窗口(returnEntryPoint)必填' });
+    }
+
+    if (!returnReason || !String(returnReason).trim()) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: '归还原因(returnReason)必填' });
+    }
+
     const credential = store.getCredentialByNo(credentialNo);
     if (!credential) {
       return res.status(404).json({ code: 'NOT_FOUND', message: `凭证号 ${credentialNo} 不存在` });
@@ -107,7 +124,8 @@ router.get('/', auth(['admin', 'window', 'observer']), (req, res) => {
   try {
     const {
       batchNo, area, credentialNo, returnPersonName,
-      returnPersonIdCard, status, returnedBy, returnEntryPoint,
+      returnPersonIdCard, recipientName, recipientIdCard,
+      status, returnedBy, returnEntryPoint,
       dateFrom, dateTo, page, pageSize
     } = req.query;
 
@@ -117,6 +135,8 @@ router.get('/', auth(['admin', 'window', 'observer']), (req, res) => {
     if (credentialNo) filter.credentialNo = credentialNo;
     if (returnPersonName) filter.returnPersonName = returnPersonName;
     if (returnPersonIdCard) filter.returnPersonIdCard = returnPersonIdCard;
+    if (recipientName) filter.recipientName = recipientName;
+    if (recipientIdCard) filter.recipientIdCard = recipientIdCard;
     if (status) filter.status = status;
     if (returnedBy) filter.returnedBy = returnedBy;
     if (returnEntryPoint) filter.returnEntryPoint = returnEntryPoint;
@@ -145,7 +165,15 @@ router.get('/', auth(['admin', 'window', 'observer']), (req, res) => {
     const p = parseInt(page) || 1;
     const ps = parseInt(pageSize) || 20;
     const start = (p - 1) * ps;
-    const paginated = records.slice(start, start + ps).map(r => maskSensitive(r, req.user.role));
+    const paginated = records.slice(start, start + ps).map(r => {
+      const cred = store.getCredentialById(r.credentialId);
+      const enriched = {
+        ...r,
+        recipientName: cred ? cred.recipientName : null,
+        recipientIdCard: cred ? cred.recipientIdCard : null
+      };
+      return maskSensitive(enriched, req.user.role);
+    });
 
     res.json({
       code: 'OK',
@@ -229,6 +257,9 @@ router.post('/:id/revoke', auth(['admin']), (req, res) => {
     }
     if (err.code === 'CREDENTIAL_NOT_FOUND') {
       return res.status(404).json({ code: err.code, message: err.message });
+    }
+    if (err.code === 'DUPLICATE_RECIPIENT') {
+      return res.status(409).json({ code: err.code, message: err.message });
     }
     res.status(500).json({ code: 'INTERNAL_ERROR', message: err.message });
   }

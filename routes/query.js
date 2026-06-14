@@ -16,6 +16,24 @@ function maskSensitive(cred, role) {
   return cred;
 }
 
+function maskField(value, keepStart, keepEnd) {
+  if (!value) return null;
+  const s = String(value);
+  if (s.length <= keepStart + keepEnd) return s;
+  return s.slice(0, keepStart) + '*'.repeat(s.length - keepStart - keepEnd) + s.slice(-keepEnd);
+}
+
+function maskReturnRecordSensitive(record, role) {
+  if (role === 'observer') {
+    return {
+      ...record,
+      returnPersonIdCard: record.returnPersonIdCard ? maskField(record.returnPersonIdCard, 3, 4) : null,
+      returnPersonPhone: record.returnPersonPhone ? maskField(record.returnPersonPhone, 3, 4) : null
+    };
+  }
+  return record;
+}
+
 function attachExtensionInfo(credential) {
   const extensions = store.getExtensionApplications({ credentialId: credential.id });
   const pendingExtension = extensions.find(e => e.status === 'pending');
@@ -126,7 +144,7 @@ router.get('/credentials/:id', auth(['admin', 'window', 'observer']), (req, res)
       credential: maskSensitive(attachReturnInfo(attachExtensionInfo(credential)), req.user.role),
       batch: batch ? { batchNo: batch.batchNo, status: batch.status, total: batch.total } : null,
       extensionApplications: extensions.map(e => maskSensitive(e, req.user.role)),
-      returnRecords: returnRecords.map(r => maskSensitive(r, req.user.role))
+      returnRecords: returnRecords.map(r => maskReturnRecordSensitive(r, req.user.role))
     }
   });
 });
@@ -136,7 +154,14 @@ router.get('/credentials-by-no/:no', auth(['admin', 'window', 'observer']), (req
   if (!credential) {
     return res.status(404).json({ code: 'NOT_FOUND', message: '凭证不存在' });
   }
-  res.json({ code: 'OK', data: maskSensitive(attachReturnInfo(attachExtensionInfo(credential)), req.user.role) });
+  const returnRecords = store.getReturnRecordsByCredentialId(credential.id);
+  res.json({
+    code: 'OK',
+    data: {
+      credential: maskSensitive(attachReturnInfo(attachExtensionInfo(credential)), req.user.role),
+      returnRecords: returnRecords.map(r => maskReturnRecordSensitive(r, req.user.role))
+    }
+  });
 });
 
 router.get('/areas', auth(['admin', 'window', 'observer']), (req, res) => {
