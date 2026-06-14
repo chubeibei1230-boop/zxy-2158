@@ -356,6 +356,36 @@ function getRuleValue(key) {
   return rule ? rule.value : null;
 }
 
+function parseValidDate(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) {
+    const err = new Error('有效期日期格式无效');
+    err.code = 'INVALID_DATE';
+    throw err;
+  }
+  return date;
+}
+
+function validateExtensionPeriod(cred, newValidTo) {
+  const newValidToDate = parseValidDate(newValidTo);
+  const validFromDate = parseValidDate(cred.validFrom);
+  const currentValidToDate = parseValidDate(cred.validTo);
+
+  const maxDays = getRuleValue('max_validity_days');
+  const validDays = (newValidToDate - validFromDate) / (1000 * 60 * 60 * 24);
+  if (validDays > maxDays) {
+    const err = new Error(`延期后总有效天数 ${Math.ceil(validDays)} 超过最大限制 ${maxDays} 天`);
+    err.code = 'INVALID_VALIDITY';
+    throw err;
+  }
+
+  if (newValidToDate <= currentValidToDate) {
+    const err = new Error('延期后有效期必须晚于当前有效期');
+    err.code = 'INVALID_EXTENSION';
+    throw err;
+  }
+}
+
 function updateRule(key, value) {
   const rule = store.rules.get(key);
   if (!rule) return null;
@@ -388,7 +418,7 @@ function createExtensionApplication(data) {
     throw err;
   }
 
-  if (cred.status !== '已发放' && cred.status !== '待盘点' && cred.status !== '异常留置') {
+  if (cred.status !== '已发放') {
     const err = new Error(`凭证状态为"${cred.status}"，不可申请延期`);
     err.code = 'INVALID_STATUS';
     throw err;
@@ -400,19 +430,13 @@ function createExtensionApplication(data) {
     throw err;
   }
 
-  const maxDays = getRuleValue('max_validity_days');
-  const validDays = (new Date(data.newValidTo) - new Date(cred.validFrom)) / (1000 * 60 * 60 * 24);
-  if (validDays > maxDays) {
-    const err = new Error(`延期后总有效天数 ${Math.ceil(validDays)} 超过最大限制 ${maxDays} 天`);
-    err.code = 'INVALID_VALIDITY';
+  if (!String(data.reason || '').trim()) {
+    const err = new Error('申请原因必填');
+    err.code = 'MISSING_FIELDS';
     throw err;
   }
 
-  if (new Date(data.newValidTo) <= new Date(cred.validTo)) {
-    const err = new Error('延期后有效期必须晚于当前有效期');
-    err.code = 'INVALID_EXTENSION';
-    throw err;
-  }
+  validateExtensionPeriod(cred, data.newValidTo);
 
   const pending = getExtensionApplications({ credentialId: data.credentialId, status: 'pending' });
   if (pending.length > 0) {
@@ -430,7 +454,7 @@ function createExtensionApplication(data) {
     originalValidFrom: cred.validFrom,
     originalValidTo: cred.validTo,
     newValidTo: data.newValidTo,
-    reason: data.reason || '',
+    reason: String(data.reason).trim(),
     recipientName: cred.recipientName,
     recipientIdCard: cred.recipientIdCard,
     recipientPhone: cred.recipientPhone,
@@ -447,7 +471,7 @@ function createExtensionApplication(data) {
   store.extensionApplications.set(app.id, app);
 
   addAuditLog('EXTENSION_APPLY', app.id, data.applicant,
-    `提交凭证 ${cred.credentialNo} 延期申请，有效期从 ${cred.validTo} 延至 ${data.newValidTo}，原因：${data.reason || '未填写'}`);
+    `提交凭证 ${cred.credentialNo} 延期申请，有效期从 ${cred.validTo} 延至 ${data.newValidTo}，原因：${String(data.reason).trim()}`);
 
   return app;
 }
@@ -490,6 +514,14 @@ function approveExtensionApplication(id, approver) {
     err.code = 'CREDENTIAL_INVALID';
     throw err;
   }
+
+  if (cred.status !== '已发放') {
+    const err = new Error(`凭证状态为"${cred.status}"，不可审批通过延期`);
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+
+  validateExtensionPeriod(cred, app.newValidTo);
 
   const duplicate = checkDuplicateRecipient(
     cred.recipientIdCard,

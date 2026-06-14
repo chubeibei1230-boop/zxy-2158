@@ -20,12 +20,22 @@ function attachExtensionInfo(credential) {
   const extensions = store.getExtensionApplications({ credentialId: credential.id });
   const pendingExtension = extensions.find(e => e.status === 'pending');
   const approvedExtensions = extensions.filter(e => e.status === 'approved');
+  const latestExtension = extensions[0] || null;
   return {
     ...credential,
     hasPendingExtension: !!pendingExtension,
     pendingExtension: pendingExtension || null,
     extensionCount: extensions.length,
-    approvedExtensionCount: approvedExtensions.length
+    approvedExtensionCount: approvedExtensions.length,
+    latestExtensionResult: latestExtension ? {
+      id: latestExtension.id,
+      status: latestExtension.status,
+      newValidTo: latestExtension.newValidTo,
+      approver: latestExtension.approver,
+      approvedAt: latestExtension.approvedAt,
+      rejectedAt: latestExtension.rejectedAt,
+      rejectReason: latestExtension.rejectReason
+    } : null
   };
 }
 

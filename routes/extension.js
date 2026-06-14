@@ -16,12 +16,12 @@ function maskSensitive(app, role) {
   return app;
 }
 
-router.post('/apply', auth(['window', 'admin']), (req, res) => {
+router.post('/apply', auth(['window']), (req, res) => {
   try {
     const { credentialId, newValidTo, reason, recipientName, recipientIdCard } = req.body;
 
-    if (!credentialId || !newValidTo || !recipientName || !recipientIdCard) {
-      return res.status(400).json({ code: 'MISSING_FIELDS', message: '缺少必填字段（credentialId, newValidTo, recipientName, recipientIdCard）' });
+    if (!credentialId || !newValidTo || !reason || !recipientName || !recipientIdCard) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: '缺少必填字段（credentialId, newValidTo, reason, recipientName, recipientIdCard）' });
     }
 
     const application = store.createExtensionApplication({
@@ -39,7 +39,7 @@ router.post('/apply', auth(['window', 'admin']), (req, res) => {
     if (err.code === 'CREDENTIAL_NOT_FOUND') {
       return res.status(404).json({ code: err.code, message: err.message });
     }
-    if (['CREDENTIAL_VOIDED', 'INVALID_STATUS', 'RECIPIENT_MISMATCH', 'INVALID_VALIDITY', 'INVALID_EXTENSION', 'PENDING_EXISTS'].includes(err.code)) {
+    if (['CREDENTIAL_VOIDED', 'INVALID_STATUS', 'RECIPIENT_MISMATCH', 'MISSING_FIELDS', 'INVALID_DATE', 'INVALID_VALIDITY', 'INVALID_EXTENSION', 'PENDING_EXISTS'].includes(err.code)) {
       return res.status(400).json({ code: err.code, message: err.message });
     }
     res.status(500).json({ code: 'INTERNAL_ERROR', message: err.message });
@@ -93,7 +93,7 @@ router.post('/:id/approve', auth(['admin']), (req, res) => {
     if (err.code === 'NOT_FOUND') {
       return res.status(404).json({ code: err.code, message: err.message });
     }
-    if (err.code === 'INVALID_STATUS' || err.code === 'CREDENTIAL_INVALID') {
+    if (['INVALID_STATUS', 'CREDENTIAL_INVALID', 'INVALID_DATE', 'INVALID_VALIDITY', 'INVALID_EXTENSION'].includes(err.code)) {
       return res.status(400).json({ code: err.code, message: err.message });
     }
     if (err.code === 'DUPLICATE_RECIPIENT') {
@@ -106,7 +106,7 @@ router.post('/:id/approve', auth(['admin']), (req, res) => {
 router.post('/:id/reject', auth(['admin']), (req, res) => {
   try {
     const { reason } = req.body;
-    if (!reason) {
+    if (!reason || !String(reason).trim()) {
       return res.status(400).json({ code: 'MISSING_FIELDS', message: '驳回原因(reason)必填' });
     }
     const application = store.rejectExtensionApplication(req.params.id, req.user.name, reason);
